@@ -95,6 +95,8 @@ class Hgru2_1d(nn.Module):
         input = self.act(input)
         output_gate = self.out_act(output_gate)
         forget_gate = F.sigmoid(forget_gate)
+        if type(lower_bound) == int:
+            lower_bound = torch.zeros_like(x).to(x)
 
         # reshape
         input, output_gate, forget_gate, lower_bound = map(
