@@ -23,8 +23,8 @@ setup(
         CUDAExtension(
             "hgru_real_cuda",
             sources=[
-                "hgru/hgru_real_cuda/hgru_real_cuda_kernel.cu",
-                "hgru/hgru_real_cuda/hgru_real_cuda.cpp",
+                "hgru2_pytorch/hgru_real_cuda/hgru_real_cuda_kernel.cu",
+                "hgru2_pytorch/hgru_real_cuda/hgru_real_cuda.cpp",
             ],
             extra_compile_args={
                 "cxx": ["-O2", "-std=c++14", "-D_GLIBCXX_USE_CXX11_ABI=0"],
