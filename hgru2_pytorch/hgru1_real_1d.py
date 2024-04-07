@@ -25,7 +25,6 @@ class Hgru1_real_1d(nn.Module):
         self.out_proj = nn.Linear(expand_ratio * embed_dim, embed_dim, bias=bias)
         self.norm = nn.LayerNorm(expand_ratio * embed_dim)
         self.act = get_activation_fn(act_fun)
-        self.causal = causal
 
         self.scan = HgruRealFunction.apply
 
