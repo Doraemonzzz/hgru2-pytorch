@@ -41,9 +41,6 @@ class Hgru2_1d(nn.Module):
             self.forward = self.forward_lesshead
             self.scan = HgruRealFunction.apply
 
-        # self.forward = self.forward_lesshead
-        self.scan = HgruRealFunction.apply
-
     def forward(self, x, lower_bound=0):
         ## x: n b d
         n, b, d = x.shape
