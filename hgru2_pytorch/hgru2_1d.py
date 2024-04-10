@@ -19,6 +19,7 @@ class Hgru2_1d(nn.Module):
         use_norm=True,
         bias=True,
         norm_type="layernorm",
+        use_fla=False,
     ):
         super().__init__()
         # get local varables
@@ -32,6 +33,7 @@ class Hgru2_1d(nn.Module):
         self.act = get_activation_fn(act_fun)
         self.out_act = get_activation_fn(uv_act_fun)
         self.use_norm = use_norm
+        self.use_fla = use_fla
         if self.use_norm:
             self.norm = get_norm_fn(norm_type)(embed_dim)
 
@@ -41,10 +43,15 @@ class Hgru2_1d(nn.Module):
             self.forward = self.forward_lesshead
             self.scan = HgruRealFunction.apply
 
+        if self.use_fla:
+            from fla.ops import fused_chunk_gla
+
+            self.scan = fused_chunk_gla
+
     def forward(self, x, lower_bound=0):
         ## x: n b d
         n, b, d = x.shape
-        if n % self.chunk_size != 0:  # for test
+        if n % self.chunk_size != 0 and not self.use_fla:  # for test
             return self.forward_lesshead(x, lower_bound)
         feature = self.in_proj(x)
         V, Q, F_ = feature.chunk(3, dim=-1)
@@ -67,18 +74,27 @@ class Hgru2_1d(nn.Module):
 
         K = 1 - lambda_
 
-        V, Q, G_K, K = map(
-            lambda x: rearrange(
-                x, "(n c) b h d -> b h n c d", c=min(self.chunk_size, n)
-            ).contiguous(),
-            [V, Q, log_lambda_, K],
-        )
+        if self.use_fla:
+            V, Q, G_K, K = map(
+                lambda x: rearrange(x, "n b h d -> b h n d").contiguous(),
+                [V, Q, log_lambda_, K],
+            )
 
-        G_V = None
-        G_K, G_V, o1 = inter_chunk_onc(Q, K.to(Q.dtype), V, G_K.to(Q.dtype), G_V)
-        o2 = intra_chunk_onc(Q, K.to(Q.dtype), V, G_K.to(Q.dtype), G_V)
-        o = o1 + o2
-        o = rearrange(o, "b h n c d -> (n c) b (h d)")
+            o, _ = self.scan(Q, K, V, G_K, 1)
+            o = rearrange(o, "b h n d -> n b (h d)")
+        else:
+            V, Q, G_K, K = map(
+                lambda x: rearrange(
+                    x, "(n c) b h d -> b h n c d", c=min(self.chunk_size, n)
+                ).contiguous(),
+                [V, Q, log_lambda_, K],
+            )
+
+            G_V = None
+            G_K, G_V, o1 = inter_chunk_onc(Q, K.to(Q.dtype), V, G_K.to(Q.dtype), G_V)
+            o2 = intra_chunk_onc(Q, K.to(Q.dtype), V, G_K.to(Q.dtype), G_V)
+            o = o1 + o2
+            o = rearrange(o, "b h n c d -> (n c) b (h d)")
 
         if self.use_norm:
             o = self.norm(o)
