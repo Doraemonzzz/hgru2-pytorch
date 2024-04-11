@@ -13,3 +13,12 @@ y_1d = hgru2_1d(x_1d)
 # y_2d = hgru_2d(x_2d)
 
 print(y_1d.shape)
+
+
+from transformers import AutoModel
+
+from hgru2_pytorch import Hgrn2Config
+
+config = Hgrn2Config()
+model = AutoModel.from_config(config)
+print(model)

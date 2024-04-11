@@ -3,11 +3,11 @@ import torch.nn.functional as F
 from einops import rearrange, repeat
 from torch import nn
 
-from .helpers import get_activation_fn, get_norm_fn, print_module, print_params
-from .hgru_real_cuda import HgruRealFunction
+from ..helpers import get_activation_fn, get_norm_fn, print_module, print_params
+from ..hgru_real_cuda import HgruRealFunction
 
 
-class BiHgru2_1d(nn.Module):
+class Hgru2_2d_series(nn.Module):
     def __init__(
         self,
         embed_dim,
@@ -17,6 +17,7 @@ class BiHgru2_1d(nn.Module):
         use_norm=True,
         bias=True,
         norm_type="layernorm",
+        **kwargs,
     ):
         super().__init__()
         # get local varables
@@ -44,7 +45,7 @@ class BiHgru2_1d(nn.Module):
 
         return torch.flip(output_state, dims=[0])
 
-    def forward(self, x, lower_bound=0):
+    def compute(self, x, lower_bound=0):
         # h = lambda * h + (1 - lambda) * input
         n, b, d = x.shape
         feature = self.in_proj(x)
@@ -64,7 +65,6 @@ class BiHgru2_1d(nn.Module):
         lambda_ = lower_bound + (1 - lower_bound) * forget_gate
         input = torch.einsum("... h d, ... h e -> ... h d e", 1 - lambda_, input)
         lambda_ = repeat(lambda_, "... h d -> ... h d e", e=self.expand_ratio)
-
         # reshape
         input, lambda_ = map(
             lambda x: rearrange(x, "... h d e -> ... (h d e)"), [input, lambda_]
@@ -92,6 +92,21 @@ class BiHgru2_1d(nn.Module):
 
         # out proj
         output = self.out_proj(output_state)
+
+        return output
+
+    def forward(self, x, lower_bound=0):
+        # h = lambda * h + (1 - lambda) * input
+        H, W, B, D = x.shape
+
+        # H
+        x = rearrange(x, "h w b d -> h (w b) d")
+        output_h = self.compute(x, lower_bound)
+        output_h = rearrange(output_h, "h (w b) d -> w (h b) d", w=W)
+
+        # W
+        output = self.compute(output_h, lower_bound)
+        output = rearrange(output, "w (h b) d -> h w b d", h=H)
 
         return output
 

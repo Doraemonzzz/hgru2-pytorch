@@ -3,10 +3,10 @@ import torch.nn.functional as F
 from einops import rearrange, repeat
 from torch import nn
 
-from .gla.inter_chunk_contribution.fn import inter_chunk_onc
-from .gla.intra_chunk_contribution.fn import intra_chunk_onc
-from .helpers import get_activation_fn, get_norm_fn, print_module, print_params
-from .hgru_real_cuda import HgruRealFunction
+from ..gla.inter_chunk_contribution.fn import inter_chunk_onc
+from ..gla.intra_chunk_contribution.fn import intra_chunk_onc
+from ..helpers import get_activation_fn, get_norm_fn, print_module, print_params
+from ..hgru_real_cuda import HgruRealFunction
 
 
 class Hgru2_1d(nn.Module):

@@ -1,8 +1,8 @@
 import torch.nn.functional as F
 from torch import nn
 
-from .helpers import get_activation_fn, print_params
-from .hgru_real_cuda import HgruRealFunction
+from ..helpers import get_activation_fn, print_params
+from ..hgru_real_cuda import HgruRealFunction
 
 
 class Hgru1_real_1d(nn.Module):
