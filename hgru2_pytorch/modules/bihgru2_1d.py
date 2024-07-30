@@ -53,6 +53,9 @@ class BiHgru2_1d(nn.Module):
         output_gate = self.out_act(output_gate)
         forget_gate = F.sigmoid(forget_gate)
 
+        if type(lower_bound) == int:
+            lower_bound = torch.zeros_like(x).to(x)
+
         # reshape
         input, output_gate, forget_gate, lower_bound = map(
             lambda x: rearrange(x, "... (h d) -> ... h d", d=self.expand_ratio),
