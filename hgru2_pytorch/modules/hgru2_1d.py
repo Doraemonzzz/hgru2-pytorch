@@ -51,8 +51,7 @@ class Hgru2_1d(nn.Module):
     def forward(self, x, lower_bound=0):
         ## x: n b d
         n, b, d = x.shape
-        if n % self.chunk_size != 0 and not self.use_fla:  # for test
-            return self.forward_lesshead(x, lower_bound)
+
         feature = self.in_proj(x)
         V, Q, F_ = feature.chunk(3, dim=-1)
         V = self.act(V)
