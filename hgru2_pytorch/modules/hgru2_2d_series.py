@@ -98,7 +98,8 @@ class Hgru2_2d_series(nn.Module):
     def forward(self, x, lower_bound=0):
         # h = lambda * h + (1 - lambda) * input
         H, W, B, D = x.shape
-
+        if type(lower_bound) == int:
+            lower_bound = torch.zeros_like(x).to(x)
         # H
         x = rearrange(x, "h w b d -> h (w b) d")
         output_h = self.compute(x, lower_bound)
