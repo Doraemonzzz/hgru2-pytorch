@@ -1,6 +1,9 @@
 from torch.autograd import Function
 
-import hgru_real_cuda
+try:
+    import hgru_real_cuda
+except:
+    pass
 
 
 class HgruRealFunction(Function):

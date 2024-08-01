@@ -3,6 +3,8 @@ import torch.nn.functional as F
 from einops import rearrange, repeat
 from torch import nn
 
+from ..gla.inter_chunk_contribution.fn import inter_chunk_onc
+from ..gla.intra_chunk_contribution.fn import intra_chunk_onc
 from ..helpers import get_activation_fn, get_norm_fn, print_module, print_params
 from ..hgru_real_cuda import HgruRealFunction
 
@@ -17,6 +19,7 @@ class BiHgru2_1d(nn.Module):
         use_norm=True,
         bias=True,
         norm_type="layernorm",
+        chunk_size=128,
     ):
         super().__init__()
         # get local varables
@@ -33,8 +36,11 @@ class BiHgru2_1d(nn.Module):
         if self.use_norm:
             self.norm = get_norm_fn(norm_type)(embed_dim)
 
-        self.chunk_size = 128
-        self.scan = HgruRealFunction.apply
+        self.chunk_size = chunk_size
+
+        if self.expand_ratio < 16:
+            self.scan = HgruRealFunction.apply
+            self.forward = self.forward_lesshead
 
     def reverse_scan(self, input, lambda_):
         output_state = self.scan(
@@ -44,7 +50,76 @@ class BiHgru2_1d(nn.Module):
 
         return torch.flip(output_state, dims=[0])
 
+    def pad(self, x):
+        # n, b, h, d
+        n, b, h, d = x.shape
+        if n % self.chunk_size == 0:
+            return x
+        else:
+            pad = self.chunk_size - n % self.chunk_size
+            return F.pad(x, (0, 0, 0, 0, 0, 0, 0, pad)).contiguous()
+
+    def compute(self, Q, K, V, G_K):
+        n, b, h, d = Q.shape
+        V, Q, G_K, K = map(
+            lambda x: rearrange(
+                self.pad(x), "(n c) b h d -> b h n c d", c=min(self.chunk_size, n)
+            ).contiguous(),
+            [V, Q, G_K, K],
+        )
+        G_V = None
+        G_K, G_V, o1 = inter_chunk_onc(Q, K.to(Q.dtype), V, G_K.to(Q.dtype), G_V)
+        o2 = intra_chunk_onc(Q, K.to(Q.dtype), V, G_K.to(Q.dtype), G_V)
+        o = o1 + o2
+        o = rearrange(o, "b h n c d -> (n c) b (h d)")
+
+        return o[:n]
+
     def forward(self, x, lower_bound=0):
+        ## x: n b d
+        n, b, d = x.shape
+
+        feature = self.in_proj(x)
+        V, Q, F_ = feature.chunk(3, dim=-1)
+        V = self.act(V)
+        Q = self.out_act(Q)
+        F_ = F.sigmoid(F_)
+        if type(lower_bound) == int:
+            lower_bound = torch.zeros_like(x).to(x)
+
+        # reshape
+        # h is num_head, d is head dimension
+        V, Q, F_, lower_bound = map(
+            lambda x: rearrange(x, "... (h d) -> ... h d", d=self.expand_ratio),
+            [V, Q, F_, lower_bound],
+        )
+
+        lambda_ = lower_bound + (1 - lower_bound) * F_
+
+        log_lambda_ = torch.log(lambda_)
+
+        K = 1 - lambda_
+
+        o1 = self.compute(Q, K, V, log_lambda_)
+        o2 = torch.flip(
+            self.compute(
+                torch.flip(Q, dims=[0]),
+                torch.flip(K, dims=[0]),
+                torch.flip(V, dims=[0]),
+                torch.flip(log_lambda_, dims=[0]),
+            ),
+            dims=[0],
+        )
+        o = o1 + o2
+
+        if self.use_norm:
+            o = self.norm(o)
+
+        # out proj
+        output = self.out_proj(o)
+        return output
+
+    def forward_lesshead(self, x, lower_bound=0):
         # h = lambda * h + (1 - lambda) * input
         n, b, d = x.shape
         feature = self.in_proj(x)
