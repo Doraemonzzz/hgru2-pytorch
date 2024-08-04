@@ -60,10 +60,12 @@ class BiHgru2_1d(nn.Module):
             return F.pad(x, (0, 0, 0, 0, 0, 0, 0, pad)).contiguous()
 
     def compute(self, Q, K, V, G_K):
+        m = Q.shape[0]
+        V, Q, G_K, K = map(lambda x: self.pad(x), [V, Q, G_K, K])
         n, b, h, d = Q.shape
         V, Q, G_K, K = map(
             lambda x: rearrange(
-                self.pad(x), "(n c) b h d -> b h n c d", c=min(self.chunk_size, n)
+                x, "(n c) b h d -> b h n c d", c=min(self.chunk_size, n)
             ).contiguous(),
             [V, Q, G_K, K],
         )
@@ -73,7 +75,7 @@ class BiHgru2_1d(nn.Module):
         o = o1 + o2
         o = rearrange(o, "b h n c d -> (n c) b (h d)")
 
-        return o[:n]
+        return o[:m]
 
     def forward(self, x, lower_bound=0):
         ## x: n b d
