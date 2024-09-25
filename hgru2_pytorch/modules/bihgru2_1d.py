@@ -5,6 +5,7 @@ from torch import nn
 
 from ..gla.inter_chunk_contribution.fn import inter_chunk_onc
 from ..gla.intra_chunk_contribution.fn import intra_chunk_onc
+from ..gla.recurrent_fuse import fused_recurrent_gla
 from ..helpers import get_activation_fn, get_norm_fn, print_module, print_params
 from ..hgru_real_cuda import HgruRealFunction
 
@@ -60,22 +61,34 @@ class BiHgru2_1d(nn.Module):
             return F.pad(x, (0, 0, 0, 0, 0, 0, 0, pad)).contiguous()
 
     def compute(self, Q, K, V, G_K):
-        m = Q.shape[0]
-        V, Q, G_K, K = map(lambda x: self.pad(x), [V, Q, G_K, K])
-        n, b, h, d = Q.shape
-        V, Q, G_K, K = map(
-            lambda x: rearrange(
-                x, "(n c) b h d -> b h n c d", c=min(self.chunk_size, n)
-            ).contiguous(),
-            [V, Q, G_K, K],
-        )
-        G_V = None
-        G_K, G_V, o1 = inter_chunk_onc(Q, K.to(Q.dtype), V, G_K.to(Q.dtype), G_V)
-        o2 = intra_chunk_onc(Q, K.to(Q.dtype), V, G_K.to(Q.dtype), G_V)
-        o = o1 + o2
-        o = rearrange(o, "b h n c d -> (n c) b (h d)")
+        if not self.training:
+            dtype = Q.dtype
+            V, Q, G_K, K = map(
+                lambda x: rearrange(x, "n b h d -> b h n d")
+                .to(torch.float32)
+                .contiguous(),
+                [V, Q, G_K, K],
+            )
+            o = fused_recurrent_gla(Q, K, V, G_K)
+            o = rearrange(o, "b h n d -> n b (h d)").to(dtype)
+            return o
+        else:
+            m = Q.shape[0]
+            V, Q, G_K, K = map(lambda x: self.pad(x), [V, Q, G_K, K])
+            n, b, h, d = Q.shape
+            V, Q, G_K, K = map(
+                lambda x: rearrange(
+                    x, "(n c) b h d -> b h n c d", c=min(self.chunk_size, n)
+                ).contiguous(),
+                [V, Q, G_K, K],
+            )
+            G_V = None
+            G_K, G_V, o1 = inter_chunk_onc(Q, K.to(Q.dtype), V, G_K.to(Q.dtype), G_V)
+            o2 = intra_chunk_onc(Q, K.to(Q.dtype), V, G_K.to(Q.dtype), G_V)
+            o = o1 + o2
+            o = rearrange(o, "b h n c d -> (n c) b (h d)")
 
-        return o[:m]
+            return o[:m]
 
     def forward(self, x, lower_bound=0):
         ## x: n b d
